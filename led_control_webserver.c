@@ -19,8 +19,8 @@
 #include "lwip/netif.h"          // Lightweight IP stack - fornece funções e estruturas para trabalhar com interfaces de rede (netif)
 
 // Credenciais WIFI - Tome cuidado se publicar no github!
-#define WIFI_SSID "SEU_SSID"
-#define WIFI_PASSWORD "SUA_SENHA"
+#define WIFI_SSID "Guilherme 2.4"
+#define WIFI_PASSWORD "Cardoso1203"
 
 // Definição dos pinos dos LEDs
 #define LED_PIN CYW43_WL_GPIO_LED_PIN   // GPIO do CI CYW43
@@ -231,7 +231,7 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "<head>\n"
              "<title> Embarcatech - LED Control </title>\n"
              "<style>\n"
-             "body { background-color: #b5e5fb; font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
+             "body { background-color: #575757; font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
              "h1 { font-size: 64px; margin-bottom: 30px; }\n"
              "button { background-color: LightGray; font-size: 36px; margin: 10px; padding: 20px 40px; border-radius: 10px; }\n"
              ".temperature { font-size: 48px; margin-top: 30px; color: #333; }\n"
@@ -239,8 +239,8 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "</head>\n"
              "<body>\n"
              "<h1>Embarcatech: LED Control</h1>\n"
-             "<form action=\"./blue_on\"><button>Ligar Azul</button></form>\n"
-             "<form action=\"./blue_off\"><button>Desligar Azul</button></form>\n"
+             "<form action=\"./blue_on\"><button>L/D Lampada A</button></form>\n"
+             "<form action=\"./blue_off\"><button>L/D Lampada B</button></form>\n"
              "<form action=\"./green_on\"><button>Ligar Verde</button></form>\n"
              "<form action=\"./green_off\"><button>Desligar Verde</button></form>\n"
              "<form action=\"./red_on\"><button>Ligar Vermelho</button></form>\n"
