@@ -12,7 +12,9 @@
 
 #include "pico/stdlib.h"         // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
 #include "hardware/adc.h"        // Biblioteca da Raspberry Pi Pico para manipulação do conversor ADC
+#include "lib/ssd1306.h"         // Biblioteca para manuseio do display
 #include "pico/cyw43_arch.h"     // Biblioteca para arquitetura Wi-Fi da Pico com CYW43  
+#include "pico/bootrom.h"        // Biblioteca para modo Bootsel
 
 #include "lwip/pbuf.h"           // Lightweight IP stack - manipulação de buffers de pacotes de rede
 #include "lwip/tcp.h"            // Lightweight IP stack - fornece funções e estruturas para trabalhar com o protocolo TCP
@@ -27,6 +29,17 @@
 #define LED_BLUE_PIN 12                 // GPIO12 - LED azul
 #define LED_GREEN_PIN 11                // GPIO11 - LED verde
 #define LED_RED_PIN 13                  // GPIO13 - LED vermelho
+// Definição dos pinos do I2C
+#define I2C_PORT i2c1
+#define I2C_SDA 14
+#define I2C_SCL 15
+#define endereco 0x3C
+// Definição do pino do botão B
+#define BOTAO_B 6
+
+// Variáveis globais
+ssd1306_t ssd;          // Inicializa a estrutura do display
+char str_temp[6];          // Buffer para armazenar a string
 
 // Inicializar os Pinos GPIO para acionamento dos LEDs da BitDogLab
 void gpio_led_bitdog(void);
@@ -42,6 +55,9 @@ float temp_read(void);
 
 // Tratamento do request do usuário
 void user_request(char **request);
+
+// Função callback para interrupções de botões
+void gpio_irq_handler(uint gpio, uint32_t events);
 
 // Função principal
 int main()
@@ -140,6 +156,27 @@ void gpio_led_bitdog(void){
     gpio_init(LED_RED_PIN);
     gpio_set_dir(LED_RED_PIN, GPIO_OUT);
     gpio_put(LED_RED_PIN, false);
+
+    // Para ser utilizado o modo BOOTSEL com botão B
+    gpio_init(BOTAO_B);
+    gpio_set_dir(BOTAO_B, GPIO_IN);
+    gpio_pull_up(BOTAO_B);
+    gpio_set_irq_enabled_with_callback(BOTAO_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+
+    // I2C Initialisation. Using it at 400Khz.
+    i2c_init(I2C_PORT, 400 * 1000);
+
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);                    // Set the GPIO pin function to I2C
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);                    // Set the GPIO pin function to I2C
+    gpio_pull_up(I2C_SDA);                                        // Pull up the data line
+    gpio_pull_up(I2C_SCL);                                        // Pull up the clock line
+    ssd1306_init(&ssd, WIDTH, HEIGHT, false, endereco, I2C_PORT); // Inicializa o display
+    ssd1306_config(&ssd);                                         // Configura o display
+    ssd1306_send_data(&ssd);                                      // Envia os dados para o display
+
+    // Limpa o display. O display inicia com todos os pixels apagados.
+    ssd1306_fill(&ssd, false);
+    ssd1306_send_data(&ssd);
 }
 
 // Função de callback ao aceitar conexões TCP
@@ -149,41 +186,51 @@ static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
     return ERR_OK;
 }
 
+// Função de callback para tratar interrupções
+void gpio_irq_handler(uint gpio, uint32_t events){
+    if(gpio == BOTAO_B){
+        ssd1306_fill(&ssd, false); 
+        ssd1306_send_data(&ssd);  
+        reset_usb_boot(0, 0);
+    }
+}  
+
 // Tratamento do request do usuário - digite aqui
 void user_request(char **request){
 
-    if (strstr(*request, "GET /blue_on") != NULL)
+    if (strstr(*request, "GET /lampA_on") != NULL)
     {
         gpio_put(LED_BLUE_PIN, 1);
-    }
-    else if (strstr(*request, "GET /blue_off") != NULL)
-    {
-        gpio_put(LED_BLUE_PIN, 0);
-    }
-    else if (strstr(*request, "GET /green_on") != NULL)
-    {
         gpio_put(LED_GREEN_PIN, 1);
-    }
-    else if (strstr(*request, "GET /green_off") != NULL)
-    {
-        gpio_put(LED_GREEN_PIN, 0);
-    }
-    else if (strstr(*request, "GET /red_on") != NULL)
-    {
         gpio_put(LED_RED_PIN, 1);
     }
-    else if (strstr(*request, "GET /red_off") != NULL)
+    else if (strstr(*request, "GET /lampA_off") != NULL)
     {
+        gpio_put(LED_BLUE_PIN, 0);
+        gpio_put(LED_GREEN_PIN, 0);
         gpio_put(LED_RED_PIN, 0);
     }
-    else if (strstr(*request, "GET /on") != NULL)
+    else if (strstr(*request, "GET /lampB_on") != NULL)
     {
         cyw43_arch_gpio_put(LED_PIN, 1);
     }
-    else if (strstr(*request, "GET /off") != NULL)
+    else if (strstr(*request, "GET /lampB_off") != NULL)
     {
         cyw43_arch_gpio_put(LED_PIN, 0);
     }
+    else if (strstr(*request, "GET /temp_show") != NULL)
+    {
+        printf("Temp: %.2f", temp_read());
+        ssd1306_fill(&ssd, false);                                   // Limpa o display
+        ssd1306_draw_string(&ssd, "Temperatura", 20, 10);
+        ssd1306_draw_string(&ssd, "do comodo:", 25, 20);
+        ssd1306_draw_string(&ssd, str_temp, 50, 45);
+        ssd1306_draw_string(&ssd, "°C", 65, 45);
+        ssd1306_send_data(&ssd);
+        sleep_ms(100);
+
+    }
+
 };
 
 // Leitura da temperatura interna
@@ -218,6 +265,9 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
     // Leitura da temperatura interna
     float temperature = temp_read();
 
+    // Conversão da temperatura para string
+    sprintf(str_temp, "%2.0f", temperature);
+
     // Cria a resposta HTML
     char html[1024];
 
@@ -229,7 +279,7 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "<!DOCTYPE html>\n"
              "<html>\n"
              "<head>\n"
-             "<title> Embarcatech - LED Control </title>\n"
+             "<title> Embarcatech - Smart House </title>\n"
              "<style>\n"
              "body { background-color: #575757; font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
              "h1 { font-size: 64px; margin-bottom: 30px; }\n"
@@ -238,14 +288,13 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "</style>\n"
              "</head>\n"
              "<body>\n"
-             "<h1>Embarcatech: LED Control</h1>\n"
-             "<form action=\"./blue_on\"><button>L/D Lampada A</button></form>\n"
-             "<form action=\"./blue_off\"><button>L/D Lampada B</button></form>\n"
-             "<form action=\"./green_on\"><button>Ligar Verde</button></form>\n"
-             "<form action=\"./green_off\"><button>Desligar Verde</button></form>\n"
-             "<form action=\"./red_on\"><button>Ligar Vermelho</button></form>\n"
-             "<form action=\"./red_off\"><button>Desligar Vermelho</button></form>\n"
-             "<p class=\"temperature\">Temperatura Interna: %.2f &deg;C</p>\n"
+             "<h1>Embarcatech: Casa Inteligente</h1>\n"
+             "<form action=\"./lampA_on\"><button>Liga Lampada A</button></form>\n"
+             "<form action=\"./lampA_off\"><button>Desliga Lampada A</button></form>\n"
+             "<form action=\"./lampB_on\"><button>Liga Lampada B</button></form>\n"
+             "<form action=\"./lampB_off\"><button>Desliga Lampada B</button></form>\n"
+             "<form action=\"./temp_show\"><button>Exibir Temp. do comodo</button></form>\n"
+             "<p class=\"temperature\">Temperatura do Comodo: %.2f &deg;C</p>\n"
              "</body>\n"
              "</html>\n",
              temperature);
