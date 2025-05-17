@@ -79,7 +79,8 @@ pico_sdk_init()
 
 add_executable(${PROJECT_NAME} 
     led_control_webserver.c 
-    lib/ssd1306.c)
+    lib/ssd1306.c
+    lib/led_matriz.c)
 
 pico_set_program_name(led_control_webserver "led_control_webserver")
 pico_set_program_version(led_control_webserver "0.1")
@@ -88,12 +89,16 @@ pico_set_program_version(led_control_webserver "0.1")
 pico_enable_stdio_uart(led_control_webserver 0)
 pico_enable_stdio_usb(led_control_webserver 1)
 
+# Creates pio_matriz header file
+pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/pio_matriz.pio)
+
 # Add the standard library to the build
 target_link_libraries(led_control_webserver
         pico_stdlib
         hardware_gpio
         hardware_adc
         hardware_i2c
+        hardware_clocks
         pico_cyw43_arch_lwip_threadsafe_background
 )
 

@@ -13,6 +13,8 @@
 #include "pico/stdlib.h"         // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
 #include "hardware/adc.h"        // Biblioteca da Raspberry Pi Pico para manipulação do conversor ADC
 #include "lib/ssd1306.h"         // Biblioteca para manuseio do display
+#include "lib/led_matriz.h"      // Biblioteca para manuseio da matriz de LED's
+#include "pio_matriz.pio.h"      // Biblioteca para uso do pio da matriz de LED's
 #include "pico/cyw43_arch.h"     // Biblioteca para arquitetura Wi-Fi da Pico com CYW43  
 #include "pico/bootrom.h"        // Biblioteca para modo Bootsel
 
@@ -38,8 +40,10 @@
 #define BOTAO_B 6
 
 // Variáveis globais
-ssd1306_t ssd;          // Inicializa a estrutura do display
-char str_temp[6];          // Buffer para armazenar a string
+ssd1306_t ssd;                      // Inicializa a estrutura do display
+char str_temp[6];                   // Buffer para armazenar a string
+volatile bool lampA = true;         // Alterna o modo da lâmpada A
+volatile bool lampB = true;         // Alterna o modo da lâmpada B
 
 // Inicializar os Pinos GPIO para acionamento dos LEDs da BitDogLab
 void gpio_led_bitdog(void);
@@ -188,9 +192,19 @@ static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 
 // Função de callback para tratar interrupções
 void gpio_irq_handler(uint gpio, uint32_t events){
+
     if(gpio == BOTAO_B){
+        PIO pio = pio0;
+        uint sm = 0;
+        uint offset = pio_add_program(pio, &pio_matriz_program);
+        pio_matriz_program_init(pio, sm, offset, pino_matriz);
+        
+        limpar_todos_leds();
+        desenho_pio(0, pio, sm);  
+
         ssd1306_fill(&ssd, false); 
-        ssd1306_send_data(&ssd);  
+        ssd1306_send_data(&ssd);
+        
         reset_usb_boot(0, 0);
     }
 }  
@@ -200,9 +214,18 @@ void user_request(char **request){
 
     if (strstr(*request, "GET /lampA_on") != NULL)
     {
-        gpio_put(LED_BLUE_PIN, 1);
-        gpio_put(LED_GREEN_PIN, 1);
-        gpio_put(LED_RED_PIN, 1);
+        lampA = !lampA;
+
+        if(lampA){
+            gpio_put(LED_BLUE_PIN, 1);
+            gpio_put(LED_GREEN_PIN, 1);
+            gpio_put(LED_RED_PIN, 1);
+        }
+        else{
+            gpio_put(LED_BLUE_PIN, 0);
+            gpio_put(LED_GREEN_PIN, 0);
+            gpio_put(LED_RED_PIN, 0);
+        }
     }
     else if (strstr(*request, "GET /lampA_off") != NULL)
     {
@@ -212,7 +235,22 @@ void user_request(char **request){
     }
     else if (strstr(*request, "GET /lampB_on") != NULL)
     {
-        cyw43_arch_gpio_put(LED_PIN, 1);
+        PIO pio = pio0;
+        uint sm = 0;
+        uint offset = pio_add_program(pio, &pio_matriz_program);
+        pio_matriz_program_init(pio, sm, offset, pino_matriz);
+
+
+        lampB = !lampB;
+
+        if(lampB){
+          liga_leds();
+          desenho_pio(0, pio, sm);
+        }
+        else{
+            limpar_todos_leds();
+            desenho_pio(0, pio, sm);
+        }
     }
     else if (strstr(*request, "GET /lampB_off") != NULL)
     {
