@@ -252,8 +252,11 @@ void user_request(char **request){
     else if (strstr(*request, "GET /temp_show") != NULL)
     {
 
+        if(cont == 1)
         // Conversão da temperatura para string
-        sprintf(str_temp, "%2.0f", temp_ajustada);
+            sprintf(str_temp, "%2.0f", temp_read());
+        else
+            sprintf(str_temp, "%2.0f", temp_ajustada);
 
 
         printf("Temp nao ajustada - Interna: %.2f", temp_read());
@@ -344,10 +347,10 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "<head>\n"
              "<title> Embarcatech - Smart House </title>\n"
              "<style>\n"
-             "body { background-color: #575757; font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
+             "body { background-color: #121212; color: #f0f0f0; font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
              "h1 { font-size: 64px; margin-bottom: 30px; }\n"
-             "button { background-color: LightGray; font-size: 36px; margin: 10px; padding: 20px 40px; border-radius: 10px; }\n"
-             ".temperature { font-size: 48px; margin-top: 30px; color: #333; }\n"
+             "button { background-color: #6da398; font-size: 36px; margin: 10px; padding: 20px 40px; border-radius: 10px; }\n"
+             ".temperature { font-size: 48px; margin-top: 30px; color: #f0f0f0; }\n"
              "</style>\n"
              "</head>\n"
              "<body>\n"
@@ -367,6 +370,7 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "</body>\n"
              "</html>\n",
              (cont > 1) ? temp_ajustada : temperature);
+
 
     // Escreve dados para envio (mas não os envia imediatamente).
     tcp_write(tpcb, html, strlen(html), TCP_WRITE_FLAG_COPY);
