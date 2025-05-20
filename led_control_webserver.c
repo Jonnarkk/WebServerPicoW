@@ -44,6 +44,9 @@ ssd1306_t ssd;                      // Inicializa a estrutura do display
 char str_temp[6];                   // Buffer para armazenar a string
 volatile bool lampA = true;         // Alterna o modo da lâmpada A
 volatile bool lampB = true;         // Alterna o modo da lâmpada B
+int ajuste_temp = 0;
+float temp_ajustada = 0;
+int cont = 1;
 
 // Inicializar os Pinos GPIO para acionamento dos LEDs da BitDogLab
 void gpio_led_bitdog(void);
@@ -227,12 +230,6 @@ void user_request(char **request){
             gpio_put(LED_RED_PIN, 0);
         }
     }
-    else if (strstr(*request, "GET /lampA_off") != NULL)
-    {
-        gpio_put(LED_BLUE_PIN, 0);
-        gpio_put(LED_GREEN_PIN, 0);
-        gpio_put(LED_RED_PIN, 0);
-    }
     else if (strstr(*request, "GET /lampB_on") != NULL)
     {
         PIO pio = pio0;
@@ -252,13 +249,16 @@ void user_request(char **request){
             desenho_pio(0, pio, sm);
         }
     }
-    else if (strstr(*request, "GET /lampB_off") != NULL)
-    {
-        cyw43_arch_gpio_put(LED_PIN, 0);
-    }
     else if (strstr(*request, "GET /temp_show") != NULL)
     {
-        printf("Temp: %.2f", temp_read());
+
+        // Conversão da temperatura para string
+        sprintf(str_temp, "%2.0f", temp_ajustada);
+
+
+        printf("Temp nao ajustada - Interna: %.2f", temp_read());
+
+
         ssd1306_fill(&ssd, false);                                   // Limpa o display
         ssd1306_draw_string(&ssd, "Temperatura", 20, 10);
         ssd1306_draw_string(&ssd, "do comodo:", 25, 20);
@@ -267,6 +267,34 @@ void user_request(char **request){
         ssd1306_send_data(&ssd);
         sleep_ms(100);
 
+    }
+    else if(strstr(*request, "GET /?ajuste=") != NULL){
+
+        if(sscanf(*request, "GET /?ajuste=%d", &ajuste_temp) == 1){
+       
+            printf("Valor de ajuste recebido: %d\n", ajuste_temp);
+            
+            if(cont == 1){
+                temp_ajustada = temp_read() + ajuste_temp;
+                cont++;
+            }
+            else
+                temp_ajustada += ajuste_temp;
+
+
+            // Conversão da temperatura para string
+            sprintf(str_temp, "%2.0f", temp_ajustada);
+
+            ssd1306_fill(&ssd, false);                                   // Limpa o display
+            ssd1306_draw_string(&ssd, "Temperatura", 20, 10);
+            ssd1306_draw_string(&ssd, "do comodo:", 25, 20);
+            ssd1306_draw_string(&ssd, str_temp, 50, 45);
+            ssd1306_draw_string(&ssd, "°C", 65, 45);
+            ssd1306_send_data(&ssd);
+            sleep_ms(100);
+
+            printf("Nova temperatura simulada: %.2f\n", temp_ajustada);
+        }
     }
 
 };
@@ -303,9 +331,6 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
     // Leitura da temperatura interna
     float temperature = temp_read();
 
-    // Conversão da temperatura para string
-    sprintf(str_temp, "%2.0f", temperature);
-
     // Cria a resposta HTML
     char html[1024];
 
@@ -327,15 +352,21 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "</head>\n"
              "<body>\n"
              "<h1>Embarcatech: Casa Inteligente</h1>\n"
-             "<form action=\"./lampA_on\"><button>Liga Lampada A</button></form>\n"
-             "<form action=\"./lampA_off\"><button>Desliga Lampada A</button></form>\n"
-             "<form action=\"./lampB_on\"><button>Liga Lampada B</button></form>\n"
-             "<form action=\"./lampB_off\"><button>Desliga Lampada B</button></form>\n"
+
+             "<form action=\"./lampA_on\"><button>Liga/Desliga Lampada A</button></form>\n"
+             "<form action=\"./lampB_on\"><button>Liga/Desliga Lampada B</button></form>\n"
              "<form action=\"./temp_show\"><button>Exibir Temp. do comodo</button></form>\n"
+
+             "<form action=\"/\" method=\"GET\">\n"
+             "<label for=\"ajuste\">Ajustar temperatura (inteiro):</label><br>\n"
+             "<input type=\"number\" id=\"ajuste\" name=\"ajuste\"><br>\n"
+             "<input type=\"submit\" value=\"Enviar\">\n"
+             "</form>\n"
+
              "<p class=\"temperature\">Temperatura do Comodo: %.2f &deg;C</p>\n"
              "</body>\n"
              "</html>\n",
-             temperature);
+             (cont > 1) ? temp_ajustada : temperature);
 
     // Escreve dados para envio (mas não os envia imediatamente).
     tcp_write(tpcb, html, strlen(html), TCP_WRITE_FLAG_COPY);
