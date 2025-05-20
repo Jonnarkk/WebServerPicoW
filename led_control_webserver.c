@@ -13,6 +13,8 @@
 #include "pico/stdlib.h"         // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
 #include "hardware/adc.h"        // Biblioteca da Raspberry Pi Pico para manipulação do conversor ADC
 #include "lib/ssd1306.h"         // Biblioteca para manuseio do display
+#include "lib/led_matriz.h"      // Biblioteca para manuseio da matriz de LED's
+#include "pio_matriz.pio.h"      // Biblioteca para uso do pio da matriz de LED's
 #include "pico/cyw43_arch.h"     // Biblioteca para arquitetura Wi-Fi da Pico com CYW43  
 #include "pico/bootrom.h"        // Biblioteca para modo Bootsel
 
@@ -38,8 +40,13 @@
 #define BOTAO_B 6
 
 // Variáveis globais
-ssd1306_t ssd;          // Inicializa a estrutura do display
-char str_temp[6];          // Buffer para armazenar a string
+ssd1306_t ssd;                      // Inicializa a estrutura do display
+char str_temp[6];                   // Buffer para armazenar a string
+volatile bool lampA = true;         // Alterna o modo da lâmpada A
+volatile bool lampB = true;         // Alterna o modo da lâmpada B
+int ajuste_temp = 0;
+float temp_ajustada = 0;
+int cont = 1;
 
 // Inicializar os Pinos GPIO para acionamento dos LEDs da BitDogLab
 void gpio_led_bitdog(void);
@@ -188,9 +195,19 @@ static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 
 // Função de callback para tratar interrupções
 void gpio_irq_handler(uint gpio, uint32_t events){
+
     if(gpio == BOTAO_B){
+        PIO pio = pio0;
+        uint sm = 0;
+        uint offset = pio_add_program(pio, &pio_matriz_program);
+        pio_matriz_program_init(pio, sm, offset, pino_matriz);
+        
+        limpar_todos_leds();
+        desenho_pio(0, pio, sm);  
+
         ssd1306_fill(&ssd, false); 
-        ssd1306_send_data(&ssd);  
+        ssd1306_send_data(&ssd);
+        
         reset_usb_boot(0, 0);
     }
 }  
@@ -200,27 +217,51 @@ void user_request(char **request){
 
     if (strstr(*request, "GET /lampA_on") != NULL)
     {
-        gpio_put(LED_BLUE_PIN, 1);
-        gpio_put(LED_GREEN_PIN, 1);
-        gpio_put(LED_RED_PIN, 1);
-    }
-    else if (strstr(*request, "GET /lampA_off") != NULL)
-    {
-        gpio_put(LED_BLUE_PIN, 0);
-        gpio_put(LED_GREEN_PIN, 0);
-        gpio_put(LED_RED_PIN, 0);
+        lampA = !lampA;
+
+        if(lampA){
+            gpio_put(LED_BLUE_PIN, 1);
+            gpio_put(LED_GREEN_PIN, 1);
+            gpio_put(LED_RED_PIN, 1);
+        }
+        else{
+            gpio_put(LED_BLUE_PIN, 0);
+            gpio_put(LED_GREEN_PIN, 0);
+            gpio_put(LED_RED_PIN, 0);
+        }
     }
     else if (strstr(*request, "GET /lampB_on") != NULL)
     {
-        cyw43_arch_gpio_put(LED_PIN, 1);
-    }
-    else if (strstr(*request, "GET /lampB_off") != NULL)
-    {
-        cyw43_arch_gpio_put(LED_PIN, 0);
+        PIO pio = pio0;
+        uint sm = 0;
+        uint offset = pio_add_program(pio, &pio_matriz_program);
+        pio_matriz_program_init(pio, sm, offset, pino_matriz);
+
+
+        lampB = !lampB;
+
+        if(lampB){
+          liga_leds();
+          desenho_pio(0, pio, sm);
+        }
+        else{
+            limpar_todos_leds();
+            desenho_pio(0, pio, sm);
+        }
     }
     else if (strstr(*request, "GET /temp_show") != NULL)
     {
-        printf("Temp: %.2f", temp_read());
+
+        if(cont == 1)
+        // Conversão da temperatura para string
+            sprintf(str_temp, "%2.0f", temp_read());
+        else
+            sprintf(str_temp, "%2.0f", temp_ajustada);
+
+
+        printf("Temp nao ajustada - Interna: %.2f", temp_read());
+
+
         ssd1306_fill(&ssd, false);                                   // Limpa o display
         ssd1306_draw_string(&ssd, "Temperatura", 20, 10);
         ssd1306_draw_string(&ssd, "do comodo:", 25, 20);
@@ -229,6 +270,34 @@ void user_request(char **request){
         ssd1306_send_data(&ssd);
         sleep_ms(100);
 
+    }
+    else if(strstr(*request, "GET /?ajuste=") != NULL){
+
+        if(sscanf(*request, "GET /?ajuste=%d", &ajuste_temp) == 1){
+       
+            printf("Valor de ajuste recebido: %d\n", ajuste_temp);
+            
+            if(cont == 1){
+                temp_ajustada = temp_read() + ajuste_temp;
+                cont++;
+            }
+            else
+                temp_ajustada += ajuste_temp;
+
+
+            // Conversão da temperatura para string
+            sprintf(str_temp, "%2.0f", temp_ajustada);
+
+            ssd1306_fill(&ssd, false);                                   // Limpa o display
+            ssd1306_draw_string(&ssd, "Temperatura", 20, 10);
+            ssd1306_draw_string(&ssd, "do comodo:", 25, 20);
+            ssd1306_draw_string(&ssd, str_temp, 50, 45);
+            ssd1306_draw_string(&ssd, "°C", 65, 45);
+            ssd1306_send_data(&ssd);
+            sleep_ms(100);
+
+            printf("Nova temperatura simulada: %.2f\n", temp_ajustada);
+        }
     }
 
 };
@@ -265,9 +334,6 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
     // Leitura da temperatura interna
     float temperature = temp_read();
 
-    // Conversão da temperatura para string
-    sprintf(str_temp, "%2.0f", temperature);
-
     // Cria a resposta HTML
     char html[1024];
 
@@ -281,23 +347,30 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "<head>\n"
              "<title> Embarcatech - Smart House </title>\n"
              "<style>\n"
-             "body { background-color: #575757; font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
+             "body { background-color: #121212; color: #f0f0f0; font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
              "h1 { font-size: 64px; margin-bottom: 30px; }\n"
-             "button { background-color: LightGray; font-size: 36px; margin: 10px; padding: 20px 40px; border-radius: 10px; }\n"
-             ".temperature { font-size: 48px; margin-top: 30px; color: #333; }\n"
+             "button { background-color: #6da398; font-size: 36px; margin: 10px; padding: 20px 40px; border-radius: 10px; }\n"
+             ".temperature { font-size: 48px; margin-top: 30px; color: #f0f0f0; }\n"
              "</style>\n"
              "</head>\n"
              "<body>\n"
              "<h1>Embarcatech: Casa Inteligente</h1>\n"
-             "<form action=\"./lampA_on\"><button>Liga Lampada A</button></form>\n"
-             "<form action=\"./lampA_off\"><button>Desliga Lampada A</button></form>\n"
-             "<form action=\"./lampB_on\"><button>Liga Lampada B</button></form>\n"
-             "<form action=\"./lampB_off\"><button>Desliga Lampada B</button></form>\n"
+
+             "<form action=\"./lampA_on\"><button>Liga/Desliga Lampada A</button></form>\n"
+             "<form action=\"./lampB_on\"><button>Liga/Desliga Lampada B</button></form>\n"
              "<form action=\"./temp_show\"><button>Exibir Temp. do comodo</button></form>\n"
+
+             "<form action=\"/\" method=\"GET\">\n"
+             "<label for=\"ajuste\">Ajustar temperatura (inteiro):</label><br>\n"
+             "<input type=\"number\" id=\"ajuste\" name=\"ajuste\"><br>\n"
+             "<input type=\"submit\" value=\"Enviar\">\n"
+             "</form>\n"
+
              "<p class=\"temperature\">Temperatura do Comodo: %.2f &deg;C</p>\n"
              "</body>\n"
              "</html>\n",
-             temperature);
+             (cont > 1) ? temp_ajustada : temperature);
+
 
     // Escreve dados para envio (mas não os envia imediatamente).
     tcp_write(tpcb, html, strlen(html), TCP_WRITE_FLAG_COPY);
